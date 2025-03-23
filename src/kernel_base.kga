@@ -1,3 +1,4 @@
+// kernel_base.kga
 // KaguOS kernel main code
 
 // ##########################################
@@ -5,7 +6,7 @@
 // ##########################################
 label kernel_entry_point
 
-DEBUG_OFF
+DEBUG_ON
 
 write "Operation register:" to INFO_REG_OP
 write "A register:" to INFO_REG_A
@@ -65,6 +66,9 @@ cpu_exec
     var catStr
     write "cat" to var:catStr
 
+    var modifyStr
+    write "modify" to var:modifyStr
+
 label kernel_start
     // Display prompt to enter the value:
     copy var:sys_work_dir to DISPLAY_BUFFER
@@ -121,6 +125,13 @@ label kernel_start
     write OP_CMP_EQ to REG_OP
     cpu_exec
     jump_if label:cat_command
+
+    // Check modify command e.g. modify path/to/file :
+    copy var:parsedStr to REG_A
+    copy var:modifyStr to REG_B
+    write OP_CMP_EQ to REG_OP
+    cpu_exec
+    jump_if label:modify_command
 
     jump label:kernel_start
 
@@ -179,6 +190,89 @@ label cat_command
         jump label:sys_fs_close
         jump label:kernel_start
 
+label modify_command
+    copy var:parsedArg1 to REG_A
+    write "" to REG_B
+    write OP_CMP_EQ to REG_OP
+    cpu_exec
+    jump_if label:kernel_start
+
+    // Open the file
+    var modify_command_file_desc
+    copy var:parsedArg1 to REG_A
+    copy PROGRAM_COUNTER to var:sys_return
+    jump label:sys_fs_open
+    jump_err label:kernel_start
+    copy REG_RES to var:modify_command_file_desc
+
+    // Read and modify each line
+    var modify_command_counter
+    write 1 to var:modify_command_counter
+
+    label modify_command_loop
+        // Read the current line
+        copy var:modify_command_file_desc to REG_A
+        copy var:modify_command_counter to REG_B
+        copy PROGRAM_COUNTER to var:sys_return
+        jump label:sys_fs_read
+        jump_err label:modify_command_close
+
+        var modify_command_line
+        copy REG_RES to var:modify_command_line
+
+        // Check if the first character is a number
+        copy var:modify_command_line to REG_A
+        write 1 to REG_B
+        write "" to REG_C
+        write OP_GET_COLUMN to REG_OP
+        cpu_exec
+        copy REG_RES to REG_A
+        write OP_IS_NUM to REG_OP
+        cpu_exec
+        jump_if_not label:modify_command_next
+
+        // Increment the first character by 1
+        copy var:modify_command_line to REG_A
+        write 1 to REG_B
+        write "" to REG_C
+        write OP_GET_COLUMN to REG_OP
+        cpu_exec
+        copy REG_RES to REG_A
+        write OP_INCR to REG_OP
+        cpu_exec
+        copy REG_RES to REG_D
+
+        // Replace the first character in the line
+        copy var:modify_command_line to REG_A // Original line
+        write 1 to REG_B // Column 1 (first character)
+        write "" to REG_C // Delimiter: empty string
+        write OP_REPLACE_COLUMN to REG_OP
+        cpu_exec
+        copy REG_RES to var:modify_command_line
+
+        // Write the modified line back to the file
+        copy var:modify_command_file_desc to REG_A
+        copy var:modify_command_counter to REG_B
+        copy var:modify_command_line to REG_C
+        copy PROGRAM_COUNTER to var:sys_return
+        jump label:sys_fs_write
+        jump_err label:modify_command_close
+
+    label modify_command_next
+        // Move to the next line
+        copy var:modify_command_counter to REG_A
+        write OP_INCR to REG_OP
+        cpu_exec
+        copy REG_RES to var:modify_command_counter
+
+        jump label:modify_command_loop
+
+    label modify_command_close
+        // Close the file
+        copy var:modify_command_file_desc to REG_A
+        copy PROGRAM_COUNTER to var:sys_return
+        jump label:sys_fs_close
+        jump label:kernel_start
 
 label kernel_end
     copy REG_ERROR to DISPLAY_BUFFER
